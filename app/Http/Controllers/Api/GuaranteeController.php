@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Guarantee;
 use App\Models\Business;
 use App\Models\User;
+use App\Models\GuaranteeTemplate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -49,9 +50,10 @@ class GuaranteeController extends Controller
         $validator = Validator::make($request->all(), [
             'business_id' => 'required|exists:businesses,id',
             'buyer_id' => 'required|exists:users,id',
-            'service_description' => 'required|string',
-            'price' => 'required|numeric|min:0',
-            'terms' => 'required|array',
+            'template_id' => 'nullable|exists:guarantee_templates,id',
+            'service_description' => 'required_without:template_id|string',
+            'price' => 'required_without:template_id|numeric|min:0',
+            'terms' => 'required_without:template_id|array',
             'expires_at' => 'nullable|date|after:now'
         ]);
 
@@ -82,17 +84,37 @@ class GuaranteeController extends Controller
             ], 403);
         }
 
-        // Create guarantee with authenticated user as seller
-        $guarantee = Guarantee::create([
+        // If template_id is provided, use the template data
+        $guaranteeData = [
             'seller_id' => $user->id,
             'business_id' => $request->business_id,
             'buyer_id' => $request->buyer_id,
-            'service_description' => $request->service_description,
-            'price' => $request->price,
-            'terms' => $request->terms,
-            'expires_at' => $request->expires_at,
             'status' => 'draft'
-        ]);
+        ];
+
+        if ($request->template_id) {
+            $template = GuaranteeTemplate::findOrFail($request->template_id);
+            
+            // Verify template belongs to the business
+            if ($template->business_id !== $business->id) {
+                return response()->json(['error' => 'Invalid template for this business'], 422);
+            }
+
+            $guaranteeData['service_description'] = $template->service_description;
+            $guaranteeData['price'] = $template->price;
+            $guaranteeData['terms'] = $template->terms;
+            
+            if ($template->expires_in_days) {
+                $guaranteeData['expires_at'] = now()->addDays($template->expires_in_days);
+            }
+        } else {
+            $guaranteeData['service_description'] = $request->service_description;
+            $guaranteeData['price'] = $request->price;
+            $guaranteeData['terms'] = $request->terms;
+            $guaranteeData['expires_at'] = $request->expires_at;
+        }
+
+        $guarantee = Guarantee::create($guaranteeData);
 
         // TODO: Trigger WhatsApp notification for consent
         // This would integrate with your WhatsApp API

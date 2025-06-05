@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\BusinessController;
 use App\Http\Controllers\Api\VerificationController;
 use App\Http\Controllers\Api\RestitutionController;
+use App\Http\Controllers\Api\GuaranteeTemplateController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -79,5 +80,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{business}/members', [BusinessController::class, 'addMember']);
         Route::delete('/{business}/members', [BusinessController::class, 'removeMember']);
         Route::post('/{business}/leave', [BusinessController::class, 'leaveBusiness']);
+    });
+
+    // Guarantee Template Routes
+    Route::prefix('businesses/{business}/templates')->group(function () {
+        Route::get('/', [GuaranteeTemplateController::class, 'index']);
+        Route::post('/', [GuaranteeTemplateController::class, 'store']);
+        Route::get('/{template}', [GuaranteeTemplateController::class, 'show']);
+        Route::put('/{template}', [GuaranteeTemplateController::class, 'update']);
+        Route::delete('/{template}', [GuaranteeTemplateController::class, 'destroy']);
     });
 }); 

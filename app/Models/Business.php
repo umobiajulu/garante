@@ -58,6 +58,11 @@ class Business extends Model
         return $this->hasMany(Guarantee::class);
     }
 
+    public function guaranteeTemplates()
+    {
+        return $this->hasMany(GuaranteeTemplate::class);
+    }
+
     public function isVerified(): bool
     {
         return $this->verification_status === 'verified';
