@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Profile extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'user_id',
@@ -30,6 +31,7 @@ class Profile extends Model
         'address_document_url',
         'verified_by',
         'verified_at',
+        'deletion_reason'
     ];
 
     protected $casts = [
@@ -37,7 +39,8 @@ class Profile extends Model
         'bvn_verified' => 'boolean',
         'verified_at' => 'datetime',
         'nin_dob' => 'date',
-        'bvn_dob' => 'date'
+        'bvn_dob' => 'date',
+        'deleted_at' => 'datetime'
     ];
 
     protected $hidden = [
@@ -80,7 +83,19 @@ class Profile extends Model
 
     public function canJoinBusiness(): bool
     {
-        return $this->isVerified() && !$this->businesses()->exists();
+        // Only verified profiles can join businesses
+        if (!$this->isVerified()) {
+            return false;
+        }
+
+        // Check if user owns any business
+        $ownsABusiness = Business::where('owner_id', $this->user_id)->exists();
+        if ($ownsABusiness) {
+            return false;
+        }
+
+        // Check if profile is already a member of any business
+        return !$this->businesses()->exists();
     }
 
     public function isNINVerified(): bool
@@ -184,5 +199,16 @@ class Profile extends Model
             $this->verification_status === 'verified' &&
             $this->verified_at !== null &&
             $this->verified_by !== null;
+    }
+
+    public function hasUnresolvedDisputes(): bool
+    {
+        return $this->businesses()
+            ->whereHas('guarantees', function ($query) {
+                $query->whereHas('disputes', function ($q) {
+                    $q->where('status', 'pending');
+                });
+            })
+            ->exists();
     }
 } 

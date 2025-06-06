@@ -87,10 +87,10 @@ class BusinessTest extends TestCase
         $this->createVerifiedProfile($member);
         
         $business = $this->createVerifiedBusiness($owner);
-        $this->actingAs($owner);
+        $this->actingAs($owner, 'api');
 
-        // Add member
-        $response = $this->postJson("/api/businesses/{$business->id}/members", [
+        // Send invitation
+        $response = $this->postJson("/api/businesses/{$business->id}/invitations", [
             'user_id' => $member->id,
             'role' => 'staff'
         ]);
@@ -98,15 +98,29 @@ class BusinessTest extends TestCase
         $response->assertStatus(201)
                 ->assertJsonStructure([
                     'message',
-                    'member' => [
+                    'invitation' => [
                         'id',
-                        'name',
-                        'email',
-                        'role'
+                        'business_id',
+                        'profile_id',
+                        'role',
+                        'status',
+                        'expires_at'
                     ]
                 ]);
 
-        // List members
+        // Switch to member user and accept invitation
+        $this->actingAs($member, 'api');
+        $invitation = $business->invitations()->where('profile_id', $member->profile->id)->first();
+        
+        $response = $this->postJson("/api/invitations/{$invitation->id}/accept");
+        
+        $response->assertOk()
+                ->assertJsonStructure([
+                    'message'
+                ]);
+
+        // Switch back to owner and list members
+        $this->actingAs($owner, 'api');
         $response = $this->getJson("/api/businesses/{$business->id}/members");
 
         $response->assertOk()
@@ -155,5 +169,226 @@ class BusinessTest extends TestCase
 
         $response->assertStatus(422)
                 ->assertJsonStructure(['message']);
+    }
+
+    public function test_verified_profile_cannot_join_multiple_businesses()
+    {
+        // Create first business and owner
+        $firstOwner = $this->createUser(['email' => 'owner1@example.com']);
+        $firstOwnerProfile = $this->createVerifiedProfile($firstOwner);
+        $firstBusiness = $this->createVerifiedBusiness($firstOwner);
+
+        // Create second business and owner
+        $secondOwner = $this->createUser(['email' => 'owner2@example.com']);
+        $secondOwnerProfile = $this->createVerifiedProfile($secondOwner);
+        $secondBusiness = $this->createVerifiedBusiness($secondOwner);
+
+        // Create a verified profile to test with
+        $user = $this->createUser(['email' => 'staff@example.com']);
+        $profile = $this->createVerifiedProfile($user);
+
+        // Add profile to first business
+        $this->actingAs($firstOwner);
+        $response = $this->postJson("/api/businesses/{$firstBusiness->id}/invitations", [
+            'user_id' => $user->id,
+            'role' => 'staff'
+        ]);
+        $response->assertStatus(201);
+
+        // Accept the invitation
+        $this->actingAs($user);
+        $invitation = $firstBusiness->invitations()->where('profile_id', $profile->id)->first();
+        $response = $this->postJson("/api/invitations/{$invitation->id}/accept");
+        $response->assertOk();
+
+        // Try to add the same profile to second business
+        $this->actingAs($secondOwner);
+        $response = $this->postJson("/api/businesses/{$secondBusiness->id}/invitations", [
+            'user_id' => $user->id,
+            'role' => 'staff'
+        ]);
+
+        $response->assertStatus(422)
+                ->assertJson([
+                    'message' => 'Profile is already a member of another business'
+                ]);
+    }
+
+    public function test_profile_can_join_business_after_leaving_previous_one()
+    {
+        // Create first business and owner
+        $firstOwner = $this->createUser(['email' => 'owner1@example.com']);
+        $firstOwnerProfile = $this->createVerifiedProfile($firstOwner);
+        $firstBusiness = $this->createVerifiedBusiness($firstOwner);
+
+        // Create second business and owner
+        $secondOwner = $this->createUser(['email' => 'owner2@example.com']);
+        $secondOwnerProfile = $this->createVerifiedProfile($secondOwner);
+        $secondBusiness = $this->createVerifiedBusiness($secondOwner);
+
+        // Create a verified profile to test with
+        $user = $this->createUser(['email' => 'staff@example.com']);
+        $profile = $this->createVerifiedProfile($user);
+
+        // Add profile to first business
+        $this->actingAs($firstOwner);
+        $response = $this->postJson("/api/businesses/{$firstBusiness->id}/invitations", [
+            'user_id' => $user->id,
+            'role' => 'staff'
+        ]);
+        $response->assertStatus(201);
+
+        // Accept the invitation
+        $this->actingAs($user);
+        $invitation = $firstBusiness->invitations()->where('profile_id', $profile->id)->first();
+        $response = $this->postJson("/api/invitations/{$invitation->id}/accept");
+        $response->assertOk();
+
+        // Leave the first business
+        $response = $this->postJson("/api/businesses/{$firstBusiness->id}/leave");
+        $response->assertOk();
+
+        // Try to add the profile to second business
+        $this->actingAs($secondOwner);
+        $response = $this->postJson("/api/businesses/{$secondBusiness->id}/invitations", [
+            'user_id' => $user->id,
+            'role' => 'staff'
+        ]);
+        $response->assertStatus(201);
+
+        // Accept the invitation for second business
+        $this->actingAs($user);
+        $invitation = $secondBusiness->invitations()->where('profile_id', $profile->id)->first();
+        $response = $this->postJson("/api/invitations/{$invitation->id}/accept");
+        $response->assertOk();
+    }
+
+    public function test_business_owner_cannot_create_another_business()
+    {
+        $owner = $this->createUser(['email' => 'owner@example.com']);
+        $ownerProfile = $this->createVerifiedProfile($owner);
+        $firstBusiness = $this->createVerifiedBusiness($owner);
+
+        $this->actingAs($owner);
+
+        $registrationDoc = UploadedFile::fake()->create('registration.pdf', 100);
+
+        $response = $this->postJson('/api/businesses', [
+            'name' => 'Second Business',
+            'registration_number' => 'REG123457',
+            'business_type' => 'sole_proprietorship',
+            'address' => 'Test Business Address',
+            'state' => 'Lagos',
+            'city' => 'Lagos',
+            'registration_document' => $registrationDoc
+        ]);
+
+        $response->assertStatus(422)
+                ->assertJson([
+                    'message' => 'You are already a member or owner of another business'
+                ]);
+    }
+
+    public function test_business_member_cannot_create_business()
+    {
+        $owner = $this->createUser(['email' => 'owner@example.com']);
+        $ownerProfile = $this->createVerifiedProfile($owner);
+        $business = $this->createVerifiedBusiness($owner);
+
+        $member = $this->createUser(['email' => 'member@example.com']);
+        $memberProfile = $this->createVerifiedProfile($member);
+        $business->members()->attach($memberProfile->id, ['role' => 'staff']);
+
+        $this->actingAs($member);
+
+        $registrationDoc = UploadedFile::fake()->create('registration.pdf', 100);
+
+        $response = $this->postJson('/api/businesses', [
+            'name' => 'Member Business',
+            'registration_number' => 'REG123458',
+            'business_type' => 'sole_proprietorship',
+            'address' => 'Test Business Address',
+            'state' => 'Lagos',
+            'city' => 'Lagos',
+            'registration_document' => $registrationDoc
+        ]);
+
+        $response->assertStatus(422)
+                ->assertJson([
+                    'message' => 'You are already a member or owner of another business'
+                ]);
+    }
+
+    public function test_business_owner_cannot_join_another_business()
+    {
+        // Create first business and owner
+        $firstOwner = $this->createUser(['email' => 'owner1@example.com']);
+        $firstOwnerProfile = $this->createVerifiedProfile($firstOwner);
+        $firstBusiness = $this->createVerifiedBusiness($firstOwner);
+
+        // Create second business and owner
+        $secondOwner = $this->createUser(['email' => 'owner2@example.com']);
+        $secondOwnerProfile = $this->createVerifiedProfile($secondOwner);
+        $secondBusiness = $this->createVerifiedBusiness($secondOwner);
+
+        // Try to add the first owner to the second business
+        $this->actingAs($secondOwner);
+        $response = $this->postJson("/api/businesses/{$secondBusiness->id}/invitations", [
+            'user_id' => $firstOwner->id,
+            'role' => 'staff'
+        ]);
+
+        $response->assertStatus(422)
+                ->assertJson([
+                    'message' => 'Profile is already a member of another business'
+                ]);
+    }
+
+    public function test_profile_can_create_business_after_leaving_previous_one()
+    {
+        // Create first business with owner
+        $owner = $this->createUser(['email' => 'owner@example.com']);
+        $ownerProfile = $this->createVerifiedProfile($owner);
+        $firstBusiness = $this->createVerifiedBusiness($owner);
+
+        // Create a member
+        $member = $this->createUser(['email' => 'member@example.com']);
+        $memberProfile = $this->createVerifiedProfile($member);
+        $firstBusiness->members()->attach($memberProfile->id, ['role' => 'staff']);
+
+        $this->actingAs($member);
+
+        // Member leaves the business
+        $response = $this->postJson("/api/businesses/{$firstBusiness->id}/leave");
+        $response->assertOk();
+
+        // Try to create a new business
+        $registrationDoc = UploadedFile::fake()->create('registration.pdf', 100);
+
+        $response = $this->postJson('/api/businesses', [
+            'name' => 'New Business',
+            'registration_number' => 'REG123459',
+            'business_type' => 'sole_proprietorship',
+            'address' => 'Test Business Address',
+            'state' => 'Lagos',
+            'city' => 'Lagos',
+            'registration_document' => $registrationDoc
+        ]);
+
+        $response->assertStatus(201)
+                ->assertJsonStructure([
+                    'message',
+                    'business' => [
+                        'id',
+                        'name',
+                        'registration_number',
+                        'business_type',
+                        'address',
+                        'state',
+                        'city',
+                        'owner_id',
+                        'verification_status'
+                    ]
+                ]);
     }
 } 

@@ -9,6 +9,11 @@ use App\Http\Controllers\Api\BusinessController;
 use App\Http\Controllers\Api\VerificationController;
 use App\Http\Controllers\Api\RestitutionController;
 use App\Http\Controllers\Api\GuaranteeTemplateController;
+use App\Http\Controllers\Api\BusinessInvitationController;
+use App\Http\Controllers\Api\AccountController;
+use App\Http\Controllers\Api\SubscriptionAccountController;
+use App\Http\Controllers\Api\SubscriptionController;
+use App\Http\Controllers\Api\SubscriptionStatusController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -61,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{profile}', [ProfileController::class, 'show']);
         Route::put('/{profile}', [ProfileController::class, 'update']);
         Route::post('/{profile}/verify', [ProfileController::class, 'verify'])->middleware('role:arbitrator');
+        Route::delete('/{profile}', [ProfileController::class, 'destroy']);
     });
 
     // Verification routes
@@ -77,9 +83,35 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{business}', [BusinessController::class, 'update']);
         Route::post('/{business}/verify', [BusinessController::class, 'verify'])->middleware('role:arbitrator');
         Route::get('/{business}/members', [BusinessController::class, 'listMembers']);
-        Route::post('/{business}/members', [BusinessController::class, 'addMember']);
+        Route::post('/{business}/invitations', [BusinessInvitationController::class, 'store']);
         Route::delete('/{business}/members', [BusinessController::class, 'removeMember']);
         Route::post('/{business}/leave', [BusinessController::class, 'leaveBusiness']);
+
+        // Account routes
+        Route::get('/{business}/accounts', [AccountController::class, 'index']);
+        Route::post('/{business}/accounts', [AccountController::class, 'store']);
+        Route::get('/{business}/accounts/{account}', [AccountController::class, 'show']);
+        Route::put('/{business}/accounts/{account}', [AccountController::class, 'update']);
+        Route::delete('/{business}/accounts/{account}', [AccountController::class, 'destroy']);
+
+        // Subscription Accounts - Read-only for business users, full access for admin
+        Route::get('/{business}/subscription-accounts', [SubscriptionAccountController::class, 'index']);
+        Route::get('/{business}/subscription-accounts/{subscriptionAccount}', [SubscriptionAccountController::class, 'show']);
+        Route::post('/{business}/subscription-accounts', [SubscriptionAccountController::class, 'store']);
+        Route::put('/{business}/subscription-accounts/{subscriptionAccount}', [SubscriptionAccountController::class, 'update']);
+
+        // Business subscription routes
+        Route::get('/{business}/subscriptions', [SubscriptionController::class, 'index']);
+        Route::post('/{business}/subscriptions', [SubscriptionController::class, 'store']);
+        Route::get('/{business}/subscriptions/{subscription}', [SubscriptionController::class, 'show']);
+        Route::delete('/{business}/subscriptions/{subscription}', [SubscriptionController::class, 'destroy']);
+    });
+
+    // Business Invitation routes
+    Route::prefix('invitations')->group(function () {
+        Route::get('/', [BusinessInvitationController::class, 'index']);
+        Route::post('/{invitation}/accept', [BusinessInvitationController::class, 'accept']);
+        Route::post('/{invitation}/reject', [BusinessInvitationController::class, 'reject']);
     });
 
     // Guarantee Template Routes
@@ -90,4 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{template}', [GuaranteeTemplateController::class, 'update']);
         Route::delete('/{template}', [GuaranteeTemplateController::class, 'destroy']);
     });
+
+    // Subscription Status Routes
+    Route::get('/subscription-status', [SubscriptionStatusController::class, 'check']);
 }); 

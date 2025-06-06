@@ -63,6 +63,26 @@ class Business extends Model
         return $this->hasMany(GuaranteeTemplate::class);
     }
 
+    public function accounts(): HasMany
+    {
+        return $this->hasMany(Account::class);
+    }
+
+    public function subscriptionAccounts(): HasMany
+    {
+        return $this->hasMany(SubscriptionAccount::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(BusinessInvitation::class);
+    }
+
     public function isVerified(): bool
     {
         return $this->verification_status === 'verified';
@@ -110,5 +130,18 @@ class Business extends Model
             'can_leave' => true,
             'reason' => null
         ];
+    }
+
+    public function hasSubscriptionExpired(): bool
+    {
+        $latestSubscription = $this->subscriptions()
+            ->latest('end_date')
+            ->first();
+
+        if (!$latestSubscription) {
+            return true; // No subscription means it's expired
+        }
+
+        return $latestSubscription->end_date->isPast();
     }
 } 

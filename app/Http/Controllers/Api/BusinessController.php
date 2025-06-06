@@ -15,7 +15,7 @@ class BusinessController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
 
     public function store(Request $request)
@@ -25,6 +25,13 @@ class BusinessController extends Controller
         if (!$profile || !$profile->isVerified()) {
             return response()->json([
                 'message' => 'Must have a verified profile to create a business'
+            ], 422);
+        }
+
+        // Check if user can create/join a business
+        if (!$profile->canJoinBusiness()) {
+            return response()->json([
+                'message' => 'You are already a member or owner of another business'
             ], 422);
         }
 
@@ -77,7 +84,16 @@ class BusinessController extends Controller
 
     public function update(Request $request, Business $business)
     {
-        $this->authorize('update', $business);
+        try {
+            $this->authorize('update', $business);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            if ($business->hasUnresolvedDisputes()) {
+                return response()->json([
+                    'message' => 'Cannot update business details while there are unresolved disputes'
+                ], 403);
+            }
+            throw $e;
+        }
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
